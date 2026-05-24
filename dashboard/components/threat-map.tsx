@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Shield, Radio, ShieldAlert } from "lucide-react";
+import { Radio } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +52,14 @@ export function ThreatMap() {
     LO: { blocks: 0, passes: 0, lastActive: 0 },
   });
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
-  const [totalLivePackets, setTotalLivePackets] = useState(0);
+  const [, setTotalLivePackets] = useState(0);
+  // Tick every 500ms so the "active in the last 4s" indicator updates
+  // without calling impure Date.now() during render.
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, []);
 
   const particleIdCounter = useRef(0);
   const rippleIdCounter = useRef(0);
@@ -210,7 +217,7 @@ export function ThreatMap() {
               {/* Threat Arcs / Connections */}
               {Object.entries(REGIONS).map(([key, reg]) => {
                 if (key === "LO") return null;
-                const isRegionActive = Date.now() - stats[key].lastActive < 4000;
+                const isRegionActive = now - stats[key].lastActive < 4000;
                 return (
                   <path
                     key={`arc-${key}`}
@@ -298,7 +305,7 @@ export function ThreatMap() {
               {/* Regional Node Constellation */}
               {Object.entries(REGIONS).map(([key, reg]) => {
                 const regStat = stats[key] || { blocks: 0, passes: 0, lastActive: 0 };
-                const isRecentActive = Date.now() - regStat.lastActive < 4000;
+                const isRecentActive = now - regStat.lastActive < 4000;
                 const hasBlocks = regStat.blocks > 0;
 
                 return (

@@ -39,9 +39,12 @@ export function LiveFeed() {
   const [paused, setPaused] = useState(false);
   const [conn, setConn] = useState<ConnState>("connecting");
   const [autoScroll, setAutoScroll] = useState(true);
+  const [bufferedCount, setBufferedCount] = useState(0);
 
   const pausedRef = useRef(paused);
-  pausedRef.current = paused;
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
   const idRef = useRef(0);
   const bufferRef = useRef<FeedEvent[]>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -51,6 +54,7 @@ export function LiveFeed() {
   useEffect(() => {
     const es = new EventSource("/api/alerts/stream");
     esRef.current = es;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- side-effect of opening the SSE connection
     setConn("connecting");
 
     es.addEventListener("hello", () => setConn("open"));
@@ -95,6 +99,7 @@ export function LiveFeed() {
           if (bufferRef.current.length > MAX_ROWS) {
             bufferRef.current.splice(0, bufferRef.current.length - MAX_ROWS);
           }
+          setBufferedCount(bufferRef.current.length);
           return;
         }
         setRows((prev) => {
@@ -118,6 +123,7 @@ export function LiveFeed() {
     if (bufferRef.current.length === 0) return;
     const drained = bufferRef.current;
     bufferRef.current = [];
+    setBufferedCount(0);
     setRows((prev) => {
       const next = [...prev, ...drained];
       return next.length > MAX_ROWS ? next.slice(-MAX_ROWS) : next;
@@ -143,6 +149,7 @@ export function LiveFeed() {
   const clear = () => {
     setRows([]);
     bufferRef.current = [];
+    setBufferedCount(0);
   };
 
   const blockCount = rows.filter((r) => r.kind === "block").length;
@@ -160,9 +167,9 @@ export function LiveFeed() {
           <span className="text-[11px] text-muted-foreground tabular-nums">
             · {rows.length} rows · {blockCount} block · {passCount} pass
           </span>
-          {paused && bufferRef.current.length > 0 ? (
+          {paused && bufferedCount > 0 ? (
             <span className="text-[10px] uppercase tracking-wider text-amber-300">
-              · {bufferRef.current.length} buffered
+              · {bufferedCount} buffered
             </span>
           ) : null}
         </div>

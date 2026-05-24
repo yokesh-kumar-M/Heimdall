@@ -105,6 +105,16 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
+def _normalize_db_url(url: str) -> str:
+    # Hosted Postgres providers (Render, Heroku, Neon) hand out `postgres://`
+    # or `postgresql://`. SQLAlchemy's async engine needs the `+asyncpg` driver.
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
+
+
 @lru_cache
 def get_settings() -> Settings:
     s = Settings()
@@ -116,4 +126,7 @@ def get_settings() -> Settings:
     ):
         # mutate via model_copy to keep frozen-like semantics
         s = s.model_copy(update={"database_url": f"sqlite+aiosqlite:///{s.telemetry_db_path}"})
+    normalized = _normalize_db_url(s.database_url)
+    if normalized != s.database_url:
+        s = s.model_copy(update={"database_url": normalized})
     return s

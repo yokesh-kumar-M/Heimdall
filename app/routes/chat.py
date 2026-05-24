@@ -16,7 +16,6 @@ analytics charts show ALL traffic, not just successful proxies.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import Any
@@ -30,7 +29,7 @@ from app.cost import BudgetCheck, estimate_cost_usd, evaluate_budget, extract_us
 from app.db import get_session
 from app.policy import PolicyManager
 from app.proxy.forwarder import forward_chat_completion
-from app.proxy.router import ResolvedProvider, select_provider
+from app.proxy.router import select_provider
 from app.repositories.budget import BudgetRepo, UsageRepo
 from app.repositories.providers import ProviderRepo
 from app.repositories.telemetry import TelemetryRepo
@@ -40,7 +39,6 @@ from app.scanners.semantic import SemanticScanner
 from app.schemas.openai import ChatCompletionRequest
 from app.telemetry.bus import AlertBus
 from app.telemetry.geoip import lookup_country
-
 
 _MODEL_PARAM_KEYS = {
     "model", "temperature", "top_p", "max_tokens", "max_completion_tokens",

@@ -37,7 +37,8 @@ build/
 *.sqlite3-wal
 *.sqlite3-shm
 *.db
-telemetry/
+# Anchor: ignore only the top-level dev telemetry folder, NOT app/telemetry/.
+/telemetry/
 
 # Node / Next.js
 node_modules/

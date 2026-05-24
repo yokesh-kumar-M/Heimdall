@@ -10,9 +10,9 @@ import ipaddress
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Sequence
+from typing import Any
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Alert, AlertFeedback

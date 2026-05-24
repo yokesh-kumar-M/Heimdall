@@ -15,16 +15,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import asyncio
-from typing import Any, Callable
+from typing import Callable
 
 import httpx
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import get_settings
-from app.db import init_engine, dispose_engine, session_factory as get_session_factory
+from app.db import dispose_engine, init_engine
+from app.db import session_factory as get_session_factory
 from app.models import Base
 from app.policy import PolicyManager
 from app.repositories.auth import TenantRepo

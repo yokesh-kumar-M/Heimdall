@@ -37,6 +37,7 @@ export function AlertDrawer({ alertId, onOpenChange }: Props) {
   useEffect(() => {
     if (alertId == null) return;
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset + fetch when the selected alert changes
     setLoading(true);
     setError(null);
     setData(null);

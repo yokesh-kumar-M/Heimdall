@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ApiKey, Tenant
 
-
 KEY_PREFIX = "sk_hd_"
 
 

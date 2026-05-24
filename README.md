@@ -6,6 +6,17 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
 [![OWASP LLM Top 10](https://img.shields.io/badge/OWASP%20LLM-Top%2010%20(2025)-orange)]()
 
+## Live demo
+
+| Surface | URL |
+| --- | --- |
+| Dashboard (Vercel) | <https://heimdall-dashboard-nu.vercel.app> |
+| API (Render) | <https://heimdall-api-c91g.onrender.com> |
+| Health | <https://heimdall-api-c91g.onrender.com/health> |
+
+> Backend runs on Render's free tier — the first request after ~15min idle
+> takes ~30s to wake the dyno.
+
 Heimdall sits between your app and OpenAI / Anthropic / your own vLLM. Every
 prompt runs through layered security scanners, every cost is tracked, every
 block is explained in plain English. Drop it in front of any
@@ -52,8 +63,8 @@ You don't have to be on an enterprise security team to want this:
 ### A. Cloud (multi-user SaaS)
 
 ```bash
-git clone https://github.com/your-org/heimdall && cd heimdall
-# follow docs/DEPLOY.md — Vercel + Fly.io + Neon Postgres + Clerk auth
+git clone https://github.com/yokesh-kumar-M/Heimdall && cd Heimdall
+# follow docs/DEPLOY.md — Vercel (dashboard) + Render (backend) + Postgres + Clerk auth
 ```
 
 Every user signs in with their Clerk account, gets `sk_hd_…` API keys, sees
@@ -133,14 +144,14 @@ inline highlighting and per-phase timings.
 - **AI triage**: Claude Haiku explains every alert, suggests next steps, clusters similar incidents.
 - **Browser extension**: Sentinel — local L1 scanner on ChatGPT/Claude/Gemini/Copilot/Perplexity.
 - **Dashboard**: marketing landing, sign-in/up, billing + providers + keys pages, mobile nav.
-- **CI/CD**: GitHub Actions for backend (pytest → Fly), dashboard (typecheck → Vercel), extension (zip artifact).
+- **CI/CD**: GitHub Actions for backend (pytest → Render auto-deploy), dashboard (typecheck → Vercel), extension (zip artifact).
 - **Production hardening**: structured JSON logs, request IDs, per-IP rate limit, CORS, Sentry, alembic-on-start.
 
 See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for the full list.
 
 ## Documentation
 
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — production deploy (Vercel + Fly + Neon + Clerk)
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — production deploy (Vercel + Render + Postgres + Clerk)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the pieces fit together
 - [`docs/SECURITY.md`](docs/SECURITY.md) — threat model, reporting policy
 - [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — dev workflow, code style

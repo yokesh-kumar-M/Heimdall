@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, X, Shield, HelpCircle, FileText, Activity, AlertTriangle, ArrowRight } from "lucide-react";
+import { Check, X, Shield, FileText, Activity, AlertTriangle, ArrowRight } from "lucide-react";
 import type { SandboxResult } from "@/lib/sandbox-types";
 import { cn } from "@/lib/utils";
 

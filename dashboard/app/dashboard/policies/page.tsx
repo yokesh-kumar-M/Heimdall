@@ -42,6 +42,7 @@ export default function PoliciesPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch on mount; setState fires after the await
     void refresh();
   }, [refresh]);
 
@@ -294,6 +295,7 @@ function PolicyRowView({
   const prevBusy = useRef(busy);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing external row updates into editable local draft
     setThreshold(
       row.suppress_after_n_fp == null ? "" : String(row.suppress_after_n_fp)
     );

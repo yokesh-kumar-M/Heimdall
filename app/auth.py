@@ -21,13 +21,11 @@ sessions, never API keys — `Depends(get_dashboard_ctx)`.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request
 from jwt import PyJWKClient
 from sqlalchemy.ext.asyncio import AsyncSession
 

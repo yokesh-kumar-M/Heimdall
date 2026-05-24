@@ -6,7 +6,6 @@ from typing import Iterable
 
 from app.scanners.base import OwaspCategory, ScanResult, Violation
 
-
 # ---------------------------------------------------------------------------
 # Invisible / steganographic Unicode characters commonly used to smuggle
 # malicious instructions past human reviewers. Sources: Unicode TR36,

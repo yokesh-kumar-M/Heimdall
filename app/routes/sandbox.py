@@ -28,7 +28,6 @@ from app.scanners.deterministic import (
 from app.scanners.semantic import (
     LLAMA_GUARD_TAXONOMY,
     SemanticScanner,
-    parse_llama_guard_output,
 )
 
 router = APIRouter(prefix="/api/sandbox", tags=["sandbox"])

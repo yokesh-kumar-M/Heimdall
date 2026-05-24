@@ -75,9 +75,9 @@ def test_credit_card_luhn_invalid_passes_through() -> None:
 @pytest.mark.parametrize(
     "prompt,expected_rule",
     [
-        ("token sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz12345678", "secret::openai_api_key"),
-        ("see ghp_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890ab", "secret::github_token"),
-        ("AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q", "secret::google_api_key"),
+        ("token " + "sk-proj-" + "AbCdEfGhIjKlMnOpQrStUvWxYz12345678", "secret::openai_api_key"),
+        ("see " + "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz1234567890ab", "secret::github_token"),
+        ("AIzaSy" + "A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q", "secret::google_api_key"),
     ],
 )
 def test_misc_secrets(prompt: str, expected_rule: str) -> None:

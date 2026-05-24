@@ -1,74 +1,74 @@
+"""Alerts read API + SSE live feed — tenant-scoped."""
+
 from __future__ import annotations
 
 import asyncio
 import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import TenantContext, get_dashboard_ctx
+from app.db import get_session
+from app.repositories.telemetry import TelemetryRepo
 from app.telemetry.bus import AlertBus
 
 router = APIRouter(prefix="/api", tags=["telemetry"])
 
 
-@router.get(
-    "/alerts",
-    summary="List blocked-request incidents (Phase 4 telemetry).",
-)
+@router.get("/alerts", summary="List recent blocked-request incidents.")
 async def list_alerts(
-    request: Request,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    layer: str | None = Query(None, description="Filter: deterministic | semantic"),
-    category: str | None = Query(
-        None, description="OWASP category, e.g. 'LLM01: Prompt Injection'"
-    ),
+    layer: str | None = Query(None),
+    category: str | None = Query(None),
 ) -> dict[str, Any]:
-    store = request.app.state.telemetry
-    rows = await store.list_alerts(
-        limit=limit, offset=offset, layer=layer, category=category
+    repo = TelemetryRepo(session)
+    rows = await repo.list_alerts(
+        tenant_id=ctx.tenant_id, limit=limit, offset=offset, layer=layer, category=category
     )
     return {"count": len(rows), "limit": limit, "offset": offset, "alerts": rows}
 
 
-@router.get(
-    "/alerts/stats",
-    summary="Aggregate counts: total blocks, by layer, by OWASP category.",
-)
-async def alerts_stats(request: Request) -> dict[str, Any]:
-    store = request.app.state.telemetry
-    return await store.stats()
+@router.get("/alerts/stats", summary="Aggregate counts.")
+async def alerts_stats(
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    repo = TelemetryRepo(session)
+    return await repo.stats(tenant_id=ctx.tenant_id)
 
 
 @router.get(
     "/alerts/stream",
-    summary=(
-        "Server-Sent Events feed of live proxy activity (block + pass). "
-        "Used by the dashboard live tail; not durable — clients resubscribe."
-    ),
+    summary="SSE feed of live block/pass events for the current tenant.",
 )
-async def stream_alerts(request: Request) -> StreamingResponse:
+async def stream_alerts(
+    request: Request,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+) -> StreamingResponse:
     bus: AlertBus = request.app.state.bus
 
     async def gen():
         queue = await bus.subscribe()
         try:
-            # Initial 'hello' frame so the client knows the stream is alive
-            # before the first event arrives.
-            yield (
-                f"event: hello\ndata: {json.dumps({'subscribers': bus.subscriber_count})}\n\n"
-            ).encode()
-
+            yield (f"event: hello\ndata: {json.dumps({'subscribers': bus.subscriber_count})}\n\n").encode()
             while True:
                 if await request.is_disconnected():
                     return
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15.0)
                 except asyncio.TimeoutError:
-                    # SSE keepalive — comment frames don't fire client events.
                     yield b": keepalive\n\n"
+                    continue
+                # Filter: only emit events for THIS tenant. Cross-tenant traffic
+                # is in the same process but never visible to the wrong viewer.
+                if event.get("tenant_id") and event["tenant_id"] != ctx.tenant_id:
                     continue
                 yield (f"event: alert\ndata: {json.dumps(event)}\n\n").encode()
         finally:
@@ -79,7 +79,7 @@ async def stream_alerts(request: Request) -> StreamingResponse:
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",  # disable nginx buffering if present
+            "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },
     )
@@ -87,11 +87,15 @@ async def stream_alerts(request: Request) -> StreamingResponse:
 
 @router.get(
     "/alerts/{alert_id}",
-    summary="Fetch one alert with all sibling violations from the same incident.",
+    summary="Fetch one alert with sibling violations from the same incident.",
 )
-async def get_alert(request: Request, alert_id: int) -> dict[str, Any]:
-    store = request.app.state.telemetry
-    incident = await store.get_incident(alert_id)
+async def get_alert(
+    alert_id: int,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    repo = TelemetryRepo(session)
+    incident = await repo.get_incident(tenant_id=ctx.tenant_id, alert_id=alert_id)
     if not incident or not incident.get("violations"):
         raise HTTPException(status_code=404, detail="Alert not found")
     return incident
@@ -104,32 +108,40 @@ class FeedbackPayload(BaseModel):
 
 @router.post(
     "/alerts/{alert_id}/feedback",
-    summary=(
-        "Record analyst feedback on an alert. False-positive feedback is "
-        "forwarded to the Policy Manager, which may auto-suppress a rule "
-        "once it crosses its configured threshold."
-    ),
+    summary="Record analyst feedback (may auto-suppress a noisy rule).",
 )
 async def post_feedback(
-    request: Request, alert_id: int, payload: FeedbackPayload
+    request: Request,
+    alert_id: int,
+    payload: FeedbackPayload,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    store = request.app.state.telemetry
-    policy = request.app.state.policy
-    incident = await store.get_incident(alert_id)
+    repo = TelemetryRepo(session)
+    incident = await repo.get_incident(tenant_id=ctx.tenant_id, alert_id=alert_id)
     if not incident or not incident.get("violations"):
         raise HTTPException(status_code=404, detail="Alert not found")
-    feedback_id, rule, fp_count = await store.record_feedback(
+
+    feedback_id, rule, fp_count = await repo.record_feedback(
+        tenant_id=ctx.tenant_id,
         alert_id=alert_id,
         feedback_type=payload.feedback_type,
         note=payload.note,
     )
+
     auto_suppressed = None
     if rule:
+        policy = request.app.state.policy
         updated = await policy.on_feedback(
-            rule=rule, feedback_type=payload.feedback_type, fp_count=fp_count
+            tenant_id=ctx.tenant_id,
+            rule=rule,
+            feedback_type=payload.feedback_type,
+            fp_count=fp_count,
+            session=session,
         )
-        if updated and updated.auto_suppressed:
-            auto_suppressed = updated.to_dict()
+        if updated and updated.get("auto_suppressed"):
+            auto_suppressed = updated
+
     return {
         "feedback_id": feedback_id,
         "alert_id": alert_id,

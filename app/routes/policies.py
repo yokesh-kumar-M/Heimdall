@@ -1,21 +1,17 @@
-"""Phase 3 — Policy Manager REST endpoints.
-
-Lets operators inspect and tune per-rule policy:
-  * GET    /api/policies          — every policy + observed rules.
-  * GET    /api/policies/{rule}   — one policy.
-  * PUT    /api/policies/{rule}   — upsert (enable/disable, threshold, note).
-  * DELETE /api/policies/{rule}   — clear back to default (enabled, default
-                                    auto-suppress threshold).
-"""
+"""Policy CRUD — tenant-scoped."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.policy import PolicyManager
+from app.auth import TenantContext, get_dashboard_ctx
+from app.db import get_session
+from app.repositories.policy import PolicyRepo
+from app.repositories.telemetry import TelemetryRepo
 
 router = APIRouter(prefix="/api/policies", tags=["policy"])
 
@@ -26,50 +22,74 @@ class PolicyUpdate(BaseModel):
     note: str | None = Field(None, max_length=500)
 
 
-@router.get("", summary="List all rule policies (stored + observed-but-unset).")
-async def list_policies(request: Request) -> dict[str, Any]:
-    policy: PolicyManager = request.app.state.policy
-    rules = await request.app.state.telemetry.distinct_rules()
-    observed_names = [r["rule"] for r in rules]
-    policies = await policy.list_policies(include_unseen_rule_names=observed_names)
+@router.get("", summary="List the tenant's policies (stored + observed-but-unset).")
+async def list_policies(
+    request: Request,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    telemetry = TelemetryRepo(session)
+    policy_repo = PolicyRepo(
+        session, request.app.state.policy.default_fp_threshold
+    )
+    rules = await telemetry.distinct_rules(tenant_id=ctx.tenant_id)
+    observed = [r["rule"] for r in rules]
+    policies = await policy_repo.list_policies(
+        tenant_id=ctx.tenant_id, include_unseen_rule_names=observed
+    )
     rule_meta = {r["rule"]: r for r in rules}
     return {
         "count": len(policies),
-        "default_fp_threshold": policy._default_threshold,  # noqa: SLF001 (intentional read)
+        "default_fp_threshold": request.app.state.policy.default_fp_threshold,
         "policies": [
-            {**p.to_dict(), **rule_meta.get(p.rule, {"hits": 0, "fp_count": 0})}
+            {**p, **rule_meta.get(p["rule"], {"hits": 0, "fp_count": 0})}
             for p in policies
         ],
     }
 
 
 @router.get("/{rule}", summary="Fetch one rule policy.")
-async def get_policy(request: Request, rule: str) -> dict[str, Any]:
-    policy: PolicyManager = request.app.state.policy
-    p = await policy.get(rule)
-    if p is None:
-        raise HTTPException(status_code=404, detail="Policy not found")
-    return p.to_dict()
-
-
-@router.put("/{rule}", summary="Upsert a rule policy (partial fields ok).")
-async def upsert_policy(
-    request: Request, rule: str, payload: PolicyUpdate
+async def get_policy(
+    rule: str,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    policy: PolicyManager = request.app.state.policy
-    # Manual edits clear the auto-suppress marker — analyst has decided.
-    updated = await policy.upsert(
+    repo = PolicyRepo(session)
+    p = await repo.get(tenant_id=ctx.tenant_id, rule=rule)
+    if not p:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return p
+
+
+@router.put("/{rule}", summary="Upsert a rule policy.")
+async def upsert_policy(
+    request: Request,
+    rule: str,
+    payload: PolicyUpdate,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    repo = PolicyRepo(session, request.app.state.policy.default_fp_threshold)
+    out = await repo.upsert(
+        tenant_id=ctx.tenant_id,
         rule=rule,
         enabled=payload.enabled,
         suppress_after_n_fp=payload.suppress_after_n_fp,
         note=payload.note,
-        auto_suppressed=False,
+        auto_suppressed=False,  # manual edit clears the auto flag
     )
-    return updated.to_dict()
+    request.app.state.policy.invalidate(ctx.tenant_id)
+    return out
 
 
-@router.delete("/{rule}", summary="Remove rule policy override (revert to default).")
-async def delete_policy(request: Request, rule: str) -> dict[str, str]:
-    policy: PolicyManager = request.app.state.policy
-    await policy.reset(rule)
+@router.delete("/{rule}", summary="Remove a rule policy override (revert to default).")
+async def delete_policy(
+    request: Request,
+    rule: str,
+    ctx: TenantContext = Depends(get_dashboard_ctx),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    repo = PolicyRepo(session)
+    await repo.reset(tenant_id=ctx.tenant_id, rule=rule)
+    request.app.state.policy.invalidate(ctx.tenant_id)
     return {"status": "ok", "rule": rule}

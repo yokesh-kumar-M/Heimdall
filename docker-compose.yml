@@ -19,16 +19,20 @@ services:
     container_name: heimdall
     restart: unless-stopped
     environment:
-      # Override anything from your .env here; left intentionally explicit so
-      # the file is self-documenting.
+      # Single-user self-host defaults — override in .env to switch modes.
+      MULTI_TENANT_MODE: ${MULTI_TENANT_MODE:-false}
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:////data/heimdall.sqlite3}
       UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-https://api.openai.com/v1}
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
       SEMANTIC_ENABLED: ${SEMANTIC_ENABLED:-true}
       SEMANTIC_BASE_URL: http://ollama:11434/v1
       SEMANTIC_MODEL: ${SEMANTIC_MODEL:-llama-guard3}
       SEMANTIC_FAIL_CLOSED: ${SEMANTIC_FAIL_CLOSED:-false}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       POLICY_DEFAULT_FP_THRESHOLD: ${POLICY_DEFAULT_FP_THRESHOLD:-5}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
     ports:
       - "8000:8000"
     volumes:
@@ -47,6 +51,10 @@ services:
     environment:
       HEIMDALL_API_URL: http://heimdall:8000
       HEIMDALL_API_TOKEN: ${HEIMDALL_API_TOKEN:-}
+      CLERK_DISABLED: ${CLERK_DISABLED:-true}
+      NEXT_PUBLIC_CLERK_DISABLED: ${CLERK_DISABLED:-true}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
     ports:
       - "3000:3000"
     depends_on:
@@ -69,9 +77,6 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
-  # One-shot: wait for ollama to come up, then pull the model. Heimdall's
-  # `depends_on` waits for *this* container to exit successfully before
-  # starting, guaranteeing L2 is ready on first run.
   ollama-pull:
     image: ollama/ollama:latest
     container_name: heimdall-ollama-pull

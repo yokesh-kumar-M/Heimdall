@@ -1,5 +1,6 @@
 .git
 .gitignore
+.github
 .venv
 __pycache__
 *.pyc
@@ -15,13 +16,11 @@ telemetry/*.sqlite3*
 *.sqlite3
 *.sqlite3-journal
 
-# Dashboard
-dashboard/node_modules
-dashboard/.next
-dashboard/out
-dashboard/.env.local
-dashboard/Dockerfile
-dashboard/.dockerignore
+# Dashboard (built separately by Vercel)
+dashboard
+
+# Extension (separate workflow)
+extension
 
 # Editor / OS
 .idea
@@ -31,4 +30,5 @@ Thumbs.db
 
 # Local-only files
 .env
+.env.local
 *.log

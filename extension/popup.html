@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Heimdall Sentinel</title>
+    <style>
+      body {
+        width: 300px;
+        margin: 0;
+        padding: 14px 16px;
+        font: 13px/1.5 system-ui, sans-serif;
+        background: #14121e;
+        color: #fff;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      h1 .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #6dd5b3;
+        box-shadow: 0 0 6px #6dd5b3;
+      }
+      p {
+        margin: 0;
+        color: #bbb;
+        font-size: 12px;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      label:last-of-type {
+        border-bottom: none;
+      }
+      input[type="checkbox"] {
+        accent-color: #7c5cff;
+      }
+      .footer {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        color: #888;
+        font-size: 11px;
+      }
+      a {
+        color: #b8a8ff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1><span class="dot"></span>Heimdall Sentinel</h1>
+    <p>Local scanner — no network calls.</p>
+    <label>
+      Active on AI sites
+      <input id="enabled" type="checkbox" />
+    </label>
+    <label>
+      Block high-severity (secrets, PII)
+      <input id="blockHighSeverity" type="checkbox" />
+    </label>
+    <div class="footer">
+      Covers: ChatGPT, Claude, Gemini, Copilot, Perplexity.<br />
+      <a href="https://github.com/your-org/heimdall" target="_blank">Heimdall</a>
+      project · v0.1.0
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

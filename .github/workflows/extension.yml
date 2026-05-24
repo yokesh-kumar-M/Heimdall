@@ -1,0 +1,30 @@
+name: Extension (Heimdall Sentinel)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension.yml"
+  pull_request:
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension.yml"
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifest.json
+        run: |
+          python -c "import json; json.load(open('extension/manifest.json'))"
+      - name: Zip extension
+        run: |
+          cd extension
+          zip -r ../heimdall-sentinel.zip . -x "*.md"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: heimdall-sentinel-${{ github.sha }}
+          path: heimdall-sentinel.zip
+          retention-days: 30

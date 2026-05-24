@@ -1,8 +1,7 @@
 """Shared fixtures for the Heimdall test suite.
 
-Everything here is network-free: we never call a real LLM or open a real
-upstream connection. The semantic scanner is patched to a deterministic
-callable, and the app instance uses an in-memory SQLite DB.
+Everything here is network-free: stub semantic scanner, in-memory SQLite via
+SQLAlchemy, and an httpx transport that refuses real upstream calls.
 """
 
 from __future__ import annotations
@@ -20,13 +19,19 @@ from typing import Any, Callable
 
 import httpx
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.config import get_settings
+from app.db import init_engine, dispose_engine, session_factory as get_session_factory
+from app.models import Base
 from app.policy import PolicyManager
+from app.repositories.auth import TenantRepo
 from app.scanners.base import OwaspCategory, ScanResult, Violation
 from app.scanners.semantic import SemanticScanner
 from app.telemetry.bus import AlertBus
-from app.telemetry.store import TelemetryStore
+from app.triage import Triager
 
 
 class StubSemanticScanner(SemanticScanner):
@@ -48,10 +53,6 @@ class StubSemanticScanner(SemanticScanner):
 
     def set_unsafe(self, code: str = "S1") -> None:
         def _verdict(text: str) -> ScanResult:
-            label, category = (
-                "Violent Crimes",
-                OwaspCategory.LLM01_PROMPT_INJECTION,
-            )
             return ScanResult(
                 layer="semantic",
                 safe=False,
@@ -59,8 +60,8 @@ class StubSemanticScanner(SemanticScanner):
                 violations=[
                     Violation(
                         rule=f"semantic::{code}",
-                        category=category,
-                        detail=f"Stubbed unsafe ({code} — {label}).",
+                        category=OwaspCategory.LLM01_PROMPT_INJECTION,
+                        detail=f"Stubbed unsafe ({code}).",
                     )
                 ],
                 raw={"verdict": "unsafe", "codes": [code], "model_output": "unsafe\n" + code},
@@ -79,25 +80,40 @@ class StubSemanticScanner(SemanticScanner):
     async def scan(self, user_text: str) -> ScanResult:  # type: ignore[override]
         if not self._enabled:
             return ScanResult(
-                layer=self.layer, safe=True, sanitized_text=user_text,
-                raw={"enabled": False},
+                layer=self.layer, safe=True, sanitized_text=user_text, raw={"enabled": False},
             )
         return self._verdict(user_text)
 
 
-@pytest.fixture
-def db_path(tmp_path: Any) -> str:
-    return str(tmp_path / "heimdall_test.sqlite3")
+@pytest.fixture(autouse=True)
+def _isolated_settings(monkeypatch, tmp_path):
+    """Run every test against a fresh SQLite file + single-user mode."""
+    db_file = tmp_path / "heimdall_test.sqlite3"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_file}")
+    monkeypatch.setenv("MULTI_TENANT_MODE", "false")
+    monkeypatch.setenv("SEMANTIC_ENABLED", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # heuristic triage
+    monkeypatch.setenv("LOG_FORMAT", "text")
+    # Reset the LRU-cached settings between tests
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
-@pytest.fixture
-def telemetry(db_path: str) -> TelemetryStore:
-    return TelemetryStore(db_path)
-
-
-@pytest.fixture
-def policy(db_path: str) -> PolicyManager:
-    return PolicyManager(db_path, default_fp_threshold=3)
+@pytest_asyncio.fixture
+async def _db_ready():
+    """Init engine + create schema."""
+    settings = get_settings()
+    engine = init_engine(settings)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    # Seed the default tenant.
+    sf = get_session_factory()
+    async with sf() as session:
+        await TenantRepo(session).ensure("default", "Default")
+        await session.commit()
+    yield
+    await dispose_engine()
 
 
 @pytest.fixture
@@ -106,23 +122,19 @@ def stub_semantic() -> StubSemanticScanner:
 
 
 @pytest.fixture
-def app_factory(
-    db_path: str, telemetry: TelemetryStore, policy: PolicyManager, stub_semantic: StubSemanticScanner
-):
-    """Build a FastAPI app pre-wired with stub state for route-level tests.
-
-    We bypass `create_app`'s lifespan so the test client doesn't need a real
-    HTTP client. Each route reads `request.app.state`, which we populate
-    directly.
-    """
+def app_factory(_db_ready, stub_semantic):
+    """Build a FastAPI app pre-wired with stub state for route-level tests."""
     from fastapi import FastAPI
 
     from app.core.exceptions import register_exception_handlers
-    from app.config import get_settings
     from app.routes.alerts import router as alerts_router
+    from app.routes.auth_keys import router as keys_router
+    from app.routes.budget import router as budget_router
     from app.routes.chat import router as chat_router
     from app.routes.policies import router as policies_router
+    from app.routes.providers import router as providers_router
     from app.routes.sandbox import router as sandbox_router
+    from app.routes.triage import router as triage_router
 
     def _factory() -> FastAPI:
         app = FastAPI()
@@ -131,23 +143,24 @@ def app_factory(
         app.include_router(alerts_router)
         app.include_router(sandbox_router)
         app.include_router(policies_router)
+        app.include_router(keys_router)
+        app.include_router(budget_router)
+        app.include_router(providers_router)
+        app.include_router(triage_router)
 
-        # Use a transport that always raises so any accidental upstream call
-        # surfaces loudly as a test bug.
         async def _refuse(_request: httpx.Request) -> httpx.Response:
             raise AssertionError(
                 "Test attempted to hit real upstream — scanners should "
                 "short-circuit before this point."
             )
 
-        app.state.settings = get_settings()
-        app.state.http_client = httpx.AsyncClient(
-            transport=httpx.MockTransport(_refuse)
-        )
-        app.state.telemetry = telemetry
+        settings = get_settings()
+        app.state.settings = settings
+        app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(_refuse))
         app.state.bus = AlertBus()
-        app.state.policy = policy
         app.state.semantic = stub_semantic
+        app.state.policy = PolicyManager(get_session_factory(), default_fp_threshold=3)
+        app.state.triager = Triager(settings)
         return app
 
     return _factory
@@ -158,5 +171,4 @@ def client(app_factory):
     app = app_factory()
     with TestClient(app) as c:
         yield c
-    # Close stubbed http client to silence ResourceWarning.
     asyncio.run(app.state.http_client.aclose())

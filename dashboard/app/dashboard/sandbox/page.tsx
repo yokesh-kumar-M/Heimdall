@@ -6,6 +6,8 @@ import {
   HighlightLegend,
   HighlightedPrompt,
 } from "@/components/sandbox/highlighted-prompt";
+import { PipelineVisualizer } from "@/components/sandbox/pipeline-visualizer";
+import { UnicodeInspector } from "@/components/sandbox/unicode-inspector";
 import { TimingBar } from "@/components/sandbox/timing-bar";
 import { VerdictBanner } from "@/components/sandbox/verdict-banner";
 import { Badge } from "@/components/ui/badge";
@@ -195,9 +197,18 @@ function PhaseSkeleton({
 }
 
 function ResultView({ result }: { result: SandboxResult }) {
+  const [activeTab, setActiveTab] = useState("trace");
+  const [annotatedMode, setAnnotatedMode] = useState<"highlight" | "inspector">("highlight");
+
   return (
     <>
       <VerdictBanner blocked={result.would_block} blockedBy={result.blocked_by} />
+
+      <PipelineVisualizer
+        result={result}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
 
       <TimingBar
         unicodeMs={result.phases.unicode.ms}
@@ -205,7 +216,7 @@ function ResultView({ result }: { result: SandboxResult }) {
         semMs={result.phases.semantic.ms}
       />
 
-      <Tabs defaultValue="trace" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="trace">Trace</TabsTrigger>
           <TabsTrigger value="annotated">Annotated prompt</TabsTrigger>
@@ -288,13 +299,46 @@ function ResultView({ result }: { result: SandboxResult }) {
         </TabsContent>
 
         <TabsContent value="annotated" className="mt-3 space-y-3">
-          <HighlightLegend />
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <HighlightLegend />
+            <div className="flex rounded-lg bg-white/[0.04] p-0.5 text-xs text-muted-foreground border border-white/[0.06]">
+              <button
+                onClick={() => setAnnotatedMode("highlight")}
+                className={cn(
+                  "px-2.5 py-1 rounded-md transition-all cursor-pointer",
+                  annotatedMode === "highlight"
+                    ? "bg-white/[0.08] text-foreground font-medium shadow-sm"
+                    : "hover:text-foreground"
+                )}
+              >
+                Highlight View
+              </button>
+              <button
+                onClick={() => setAnnotatedMode("inspector")}
+                className={cn(
+                  "px-2.5 py-1 rounded-md transition-all cursor-pointer",
+                  annotatedMode === "inspector"
+                    ? "bg-white/[0.08] text-foreground font-medium shadow-sm"
+                    : "hover:text-foreground"
+                )}
+              >
+                Character Matrix
+              </button>
+            </div>
+          </div>
           <div className="rounded-lg border border-white/[0.06] bg-black/40 p-3">
-            <HighlightedPrompt
-              text={result.input}
-              invisible={result.phases.unicode.invisible_chars}
-              matches={result.phases.deterministic.matches}
-            />
+            {annotatedMode === "highlight" ? (
+              <HighlightedPrompt
+                text={result.input}
+                invisible={result.phases.unicode.invisible_chars}
+                matches={result.phases.deterministic.matches}
+              />
+            ) : (
+              <UnicodeInspector
+                text={result.input}
+                invisible={result.phases.unicode.invisible_chars}
+              />
+            )}
           </div>
         </TabsContent>
 

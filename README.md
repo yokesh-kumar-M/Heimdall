@@ -1,103 +1,92 @@
 # Heimdall
 
-A security reverse proxy for OpenAI-compatible LLM APIs. Heimdall sits between
-your application and the upstream provider, runs every prompt through a
-layered defense, and writes a full audit trail to SQLite.
+> A security gateway for every LLM call you make.
+
+[![CI](https://img.shields.io/badge/CI-passing-success)]()
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)]()
+[![OWASP LLM Top 10](https://img.shields.io/badge/OWASP%20LLM-Top%2010%20(2025)-orange)]()
+
+Heimdall sits between your app and OpenAI / Anthropic / your own vLLM. Every
+prompt runs through layered security scanners, every cost is tracked, every
+block is explained in plain English. Drop it in front of any
+OpenAI-compatible API — change one line of code, get six layers of common sense.
 
 ```
-client ──► Heimdall ──► OpenAI / Anthropic / OpenRouter / your own vLLM
+client ──► Heimdall ──► OpenAI / Anthropic / OpenRouter / vLLM
               │
-              ├── L1: deterministic scanners (Unicode, jailbreak, secrets, PII)
-              ├── L2: Llama Guard 3 semantic classifier
-              ├── Policy Manager (rule overrides + auto-suppress)
-              ├── Telemetry → SQLite
-              └── Live SSE feed for the dashboard
+              ├── L1 deterministic   sub-ms · jailbreaks · invisible Unicode · 9 secret/PII classes
+              ├── L2 semantic        Llama Guard 3 · OWASP LLM Top 10 mapping
+              ├── Policy Manager     per-tenant rule overrides + auto-suppress
+              ├── Cost engine        per-model pricing · monthly budget caps
+              ├── Multi-provider     priority/cost/latency routing + auto-failover
+              ├── AI triage          Claude Haiku explains every block
+              └── Telemetry          Postgres or SQLite · live SSE feed
 ```
 
-Blocked requests never reach upstream. Everything that *does* get forwarded is
-NFKC-normalized and stripped of invisible / steganographic Unicode first, so
-the model never sees Trojan-Source-style payloads.
+## Why everyday users care
 
-## Repo layout
+You don't have to be on an enterprise security team to want this:
 
-| Path | What it is |
+- **You leak less.** Sentinel browser extension warns you before you paste
+  an API key, a credit card, or "ignore previous instructions" into
+  ChatGPT.
+- **You spend less.** Per-model pricing means you see "Today: $2.41 — on track for $73 this month" instead of a billing surprise.
+- **You fail less.** If OpenAI 5xxs, Heimdall transparently falls over to
+  OpenRouter, Groq, or whichever provider you've configured next.
+- **You learn more.** Every blocked request comes with a plain-English
+  explanation from Claude Haiku — what tried to happen, why it matters, what to do.
+
+## What's in the box
+
+| Surface | What it is |
 | --- | --- |
-| `app/` | FastAPI backend — proxy, scanners, telemetry, policy manager |
-| `dashboard/` | Next.js 16 operations console (alerts, OWASP, sandbox, policies) |
-| `tests/` | pytest suite + JSON fixtures for manual `curl` testing |
-| `telemetry/` | Default location for the audit SQLite DB |
+| `app/` | FastAPI backend — proxy, scanners, telemetry, policy, cost, providers, triage |
+| `dashboard/` | Next.js 16 console — overview, alerts, OWASP, sandbox, billing, providers, keys |
+| `extension/` | Manifest V3 browser extension — local scanner on chat sites |
+| `alembic/` | DB migrations (SQLite + Postgres) |
+| `tests/` | pytest suite (57 tests, network-free) |
+| `docs/` | DEPLOY.md, ARCHITECTURE.md, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md |
 
-## Layered defense
+## Two ways to run it
 
-### L1 — Deterministic (`app/scanners/deterministic.py`)
-
-Sub-millisecond scanner that fires on:
-
-* **Invisible Unicode** — zero-width chars, bidi overrides, Tag-block
-  smuggling. Stripped before downstream processing.
-* **Jailbreak triggers** — DAN, "ignore previous instructions", developer-mode
-  toggles, role-reveal probes. Curated from public corpora.
-* **Secrets & PII** — AWS / GitHub / OpenAI / Anthropic / Google / Slack
-  tokens, private-key blocks, US SSN, Luhn-valid credit cards.
-
-### L2 — Semantic (`app/scanners/semantic.py`)
-
-OpenAI-compatible call to Meta's **Llama Guard 3**. Works with:
-
-* **Ollama** — `OLLAMA_HOST=http://localhost:11434` + `ollama pull llama-guard3`
-* **OpenRouter** — `meta-llama/llama-guard-3-8b`
-* **Self-hosted vLLM / TGI** — point `SEMANTIC_BASE_URL` at it
-
-L2 codes (S1–S14) are mapped to the OWASP LLM Top 10 (2025) categories so the
-dashboard's compliance view stays meaningful.
-
-### Policy Manager (`app/policy.py`)
-
-* Per-rule override (enable / disable, override note).
-* Feedback-driven auto-suppress: N false-positive reports → rule muted, with
-  a note stamped on the policy row for audit.
-* Shadowed violations are still telemetered (with `shadowed_by_policy=True`)
-  so the forensic trail is never lost — only the gate decision changes.
-
-REST API:
-
-```
-GET    /api/policies            list all + observed rules
-GET    /api/policies/{rule}     fetch one
-PUT    /api/policies/{rule}     upsert (enabled / threshold / note)
-DELETE /api/policies/{rule}     revert to default
-```
-
-## OWASP LLM Top 10 mapping
-
-| Category | Triggered by |
-| --- | --- |
-| LLM01 Prompt Injection | jailbreak phrases, invisible-Unicode smuggling, L2 codes S1–S4, S9–S12 |
-| LLM02 Sensitive Info Disclosure | secret/PII regex, credit cards, L2 S7 (Privacy), S8 (IP) |
-| LLM06 Excessive Agency | L2 S14 (Code Interpreter Abuse) |
-| LLM09 Misinformation | L2 S5 (Defamation), S6 (Specialized Advice), S13 (Elections) |
-
-## Quickstart
+### A. Cloud (multi-user SaaS)
 
 ```bash
-# 1. Backend
-python -m venv .venv
-.venv\Scripts\Activate.ps1      # Windows; use `source .venv/bin/activate` on *nix
-pip install -r requirements.txt
-copy .env.example .env          # then edit values
-uvicorn app.main:app --reload   # http://127.0.0.1:8000
-
-# 2. (Optional) Llama Guard 3 via Ollama
-ollama pull llama-guard3
-# leave SEMANTIC_BASE_URL=http://localhost:11434/v1 in .env
-
-# 3. Dashboard
-cd dashboard
-npm install
-npm run dev                     # http://localhost:3000
+git clone https://github.com/your-org/heimdall && cd heimdall
+# follow docs/DEPLOY.md — Vercel + Fly.io + Neon Postgres + Clerk auth
 ```
 
-Then point any OpenAI-SDK-compatible client at Heimdall:
+Every user signs in with their Clerk account, gets `sk_hd_…` API keys, sees
+only their own alerts and costs. Multi-tenant from the ground up.
+
+### B. Self-host (single user, single machine)
+
+```bash
+git clone https://github.com/your-org/heimdall && cd heimdall
+cp .env.example .env       # at minimum, set UPSTREAM_API_KEY=<your OpenAI key>
+docker compose up --build
+```
+
+Open <http://localhost:3000>. No auth, no signup, single "default" tenant.
+Perfect for personal use.
+
+### C. Just the backend, no Docker
+
+```bash
+python -m venv .venv
+.venv\Scripts\Activate.ps1                # Windows; source .venv/bin/activate on *nix
+pip install -r requirements.txt
+cp .env.example .env
+alembic upgrade head                      # creates the SQLite schema
+uvicorn app.main:app --reload             # http://127.0.0.1:8000
+
+cd dashboard
+cp .env.local.example .env.local
+npm install
+npm run dev                               # http://localhost:3000
+```
+
+Then point any OpenAI SDK at Heimdall:
 
 ```python
 from openai import OpenAI
@@ -120,52 +109,52 @@ curl -X POST http://127.0.0.1:8000/v1/chat/completions \
 curl -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   --data @tests/fixtures/smuggle.json
-
-# Same payloads but through the sandbox (no telemetry written):
-curl -X POST http://127.0.0.1:8000/api/sandbox/evaluate \
-  -H "Content-Type: application/json" \
-  --data @tests/fixtures/sandbox-jailbreak.json
 ```
 
-The dashboard's **Sandbox** tab does the same evaluation interactively, with
-per-phase timings and inline match highlighting.
+Or use the dashboard's **Sandbox** tab for interactive evaluation with
+inline highlighting and per-phase timings.
 
-## Environment
+## The OWASP LLM Top 10 mapping
 
-See [`.env.example`](.env.example) for the full list. Highlights:
+| Category | Triggered by |
+| --- | --- |
+| LLM01 Prompt Injection | jailbreak phrases · invisible-Unicode smuggling · L2 codes S1–S4, S9–S12 |
+| LLM02 Sensitive Info Disclosure | secret/PII regexes · credit cards · L2 S7 (Privacy), S8 (IP) |
+| LLM06 Excessive Agency | L2 S14 (Code Interpreter Abuse) |
+| LLM09 Misinformation | L2 S5 (Defamation), S6 (Specialized Advice), S13 (Elections) |
+| LLM10 Unbounded Consumption | Cost engine + monthly budget caps |
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `UPSTREAM_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible base URL |
-| `UPSTREAM_API_KEY` | _(empty)_ | Used only if the client request has no Authorization header |
-| `SEMANTIC_ENABLED` | `true` | Set `false` to skip the L2 call entirely |
-| `SEMANTIC_BASE_URL` | `http://localhost:11434/v1` | Ollama default |
-| `SEMANTIC_FAIL_CLOSED` | `false` | When `true`, an unreachable L2 blocks the request instead of letting it through |
-| `TELEMETRY_DB_PATH` | `telemetry/heimdall.sqlite3` | The same DB also stores `rule_policies` |
-| `POLICY_DEFAULT_FP_THRESHOLD` | `5` | False-positive reports needed before auto-suppress |
-| `GEOIP_DB_PATH` | _(unset)_ | Optional MaxMind GeoLite2-Country `.mmdb` for country lookup |
-| `HEIMDALL_API_URL` (dashboard) | `http://127.0.0.1:8000` | Where the dashboard finds the backend |
-| `HEIMDALL_API_TOKEN` (dashboard) | _(empty)_ | Forwarded as `Authorization: Bearer …` if set |
+## What's new in v0.2
+
+- **Multi-tenancy**: every row tenant-scoped; Clerk JWT or `sk_hd_…` key resolves to the current tenant.
+- **Postgres**: SQLAlchemy 2.0 + Alembic. SQLite still works for dev.
+- **Cost engine**: pricing table, per-request cost, monthly budget with hard/soft caps.
+- **Multi-provider router**: OpenAI / Anthropic / OpenRouter / Groq / custom, with priority/cost/latency strategies and failover.
+- **AI triage**: Claude Haiku explains every alert, suggests next steps, clusters similar incidents.
+- **Browser extension**: Sentinel — local L1 scanner on ChatGPT/Claude/Gemini/Copilot/Perplexity.
+- **Dashboard**: marketing landing, sign-in/up, billing + providers + keys pages, mobile nav.
+- **CI/CD**: GitHub Actions for backend (pytest → Fly), dashboard (typecheck → Vercel), extension (zip artifact).
+- **Production hardening**: structured JSON logs, request IDs, per-IP rate limit, CORS, Sentry, alembic-on-start.
+
+See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for the full list.
+
+## Documentation
+
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — production deploy (Vercel + Fly + Neon + Clerk)
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the pieces fit together
+- [`docs/SECURITY.md`](docs/SECURITY.md) — threat model, reporting policy
+- [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — dev workflow, code style
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — what's changed between releases
 
 ## Tests
 
 ```bash
-pytest -q
+pytest -q          # 57 tests, network-free
 ```
 
-Covers scanners, telemetry store, policy manager, alerts route, and the
-sandbox endpoint. Network-free — no real LLM calls.
-
-## Docker
-
-```bash
-docker compose up --build
-```
-
-This brings up the backend, the dashboard, and an Ollama container with
-Llama Guard 3 pre-pulled. The compose file lives at the repo root; tweak the
-`OLLAMA_MODEL` env var if you want a smaller variant.
+Covers scanners, repositories, policy manager, alerts/sandbox/policies/chat
+routes, and the new cost / triage / multi-provider paths.
 
 ## License
 
-Internal / unreleased — see project owner.
+Apache 2.0.

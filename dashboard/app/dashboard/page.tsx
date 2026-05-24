@@ -4,6 +4,7 @@ import { CategoryBar } from "@/components/category-bar";
 import { KpiCard } from "@/components/kpi-card";
 import { LiveFeed } from "@/components/live-feed";
 import { SafetyDial } from "@/components/safety-dial";
+import { ThreatMap } from "@/components/threat-map";
 import { getAlerts, getStats } from "@/lib/heimdall";
 import { owaspShort } from "@/lib/owasp";
 import type { Alert } from "@/lib/types";
@@ -95,7 +96,12 @@ export default async function Overview() {
             <CardTitle className="text-base">Heimdall Safety Index</CardTitle>
           </CardHeader>
           <CardContent className="pt-2 pb-4">
-            <SafetyDial blocks24h={last24h} totalBlocks={stats.total} />
+            <SafetyDial
+              blocks24h={last24h}
+              totalBlocks={stats.total}
+              ratio={ratio}
+              topCategory={topCategory ? owaspShort(topCategory.category) : "—"}
+            />
           </CardContent>
         </Card>
 
@@ -148,14 +154,17 @@ export default async function Overview() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Live activity stream</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <LiveFeed />
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Live activity stream</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <LiveFeed />
+          </CardContent>
+        </Card>
+        <ThreatMap />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>

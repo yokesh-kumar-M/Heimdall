@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+import { ClerkProvider } from "@clerk/nextjs";
+
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -14,18 +16,24 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const CLERK_OFF =
+  process.env.CLERK_DISABLED === "true" ||
+  !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 export const metadata: Metadata = {
-  title: "Heimdall — LLM Security Console",
+  title: "Heimdall — Security gateway for AI",
   description:
-    "Operations console for the Heimdall LLM security gateway. Inspect blocks, OWASP LLM Top 10 trends, and per-layer scanner telemetry.",
+    "An OpenAI-compatible reverse proxy that guards every LLM call. Block prompt injection, data leaks, jailbreaks, and runaway spend — in one drop-in URL.",
+  openGraph: {
+    title: "Heimdall — Security gateway for AI",
+    description:
+      "Drop-in security for any OpenAI-compatible API. Layered scanners, AI triage, multi-provider failover, per-user budgets.",
+    type: "website",
+  },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const tree = (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
@@ -36,4 +44,5 @@ export default function RootLayout({
       </body>
     </html>
   );
+  return CLERK_OFF ? tree : <ClerkProvider>{tree}</ClerkProvider>;
 }

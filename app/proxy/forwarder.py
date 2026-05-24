@@ -1,3 +1,14 @@
+"""Outbound HTTP client for upstream LLM providers.
+
+`forward_chat_completion(client, request, payload, provider)` takes a
+ResolvedProvider (slug + base_url + api_key) so the chat route can fail over
+between providers without rebuilding URLs.
+
+For multi-tenant mode the API key comes from the provider config (env var
+referenced by `secret_ref`). For single-user mode it's the global settings
+fallback — both paths end up here.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -7,40 +18,28 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.config import Settings
 from app.core.exceptions import (
     UpstreamConnectionError,
     UpstreamProtocolError,
     UpstreamTimeoutError,
 )
+from app.proxy.router import ResolvedProvider
 
 logger = logging.getLogger(__name__)
 
-# Hop-by-hop and request-bound headers we must NOT forward upstream.
 _BLOCKED_REQUEST_HEADERS = {
-    "host",
-    "content-length",
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-    "accept-encoding",
+    "host", "content-length", "connection", "keep-alive",
+    "proxy-authenticate", "proxy-authorization", "te",
+    "trailer", "transfer-encoding", "upgrade", "accept-encoding",
+    "authorization",  # we set this from the provider key, never forward client's
 }
 
-# Headers we strip from the upstream response before relaying to the client.
 _BLOCKED_RESPONSE_HEADERS = {
-    "content-length",
-    "transfer-encoding",
-    "connection",
-    "content-encoding",
+    "content-length", "transfer-encoding", "connection", "content-encoding",
 }
 
 
-def build_http_client(settings: Settings) -> httpx.AsyncClient:
+def build_http_client(settings: Any) -> httpx.AsyncClient:
     timeout = httpx.Timeout(
         timeout=settings.http_total_timeout,
         connect=settings.http_connect_timeout,
@@ -50,17 +49,12 @@ def build_http_client(settings: Settings) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout, limits=limits)
 
 
-def _filter_request_headers(incoming: dict[str, str], settings: Settings) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for key, value in incoming.items():
-        if key.lower() in _BLOCKED_REQUEST_HEADERS:
-            continue
-        out[key] = value
-
-    # Inject server-side fallback key if client did not provide one.
-    if "authorization" not in {k.lower() for k in out} and settings.upstream_api_key:
-        out["Authorization"] = f"Bearer {settings.upstream_api_key}"
-
+def _filter_request_headers(incoming: dict[str, str], provider: ResolvedProvider) -> dict[str, str]:
+    out: dict[str, str] = {
+        k: v for k, v in incoming.items() if k.lower() not in _BLOCKED_REQUEST_HEADERS
+    }
+    if provider.api_key:
+        out["Authorization"] = f"Bearer {provider.api_key}"
     return out
 
 
@@ -75,26 +69,17 @@ def _filter_response_headers(upstream: httpx.Headers) -> dict[str, str]:
 async def forward_chat_completion(
     *,
     client: httpx.AsyncClient,
-    settings: Settings,
     request: Request,
     payload: dict[str, Any],
+    provider: ResolvedProvider,
 ) -> JSONResponse | StreamingResponse:
-    """Forward a (sanitized) chat completion payload to the upstream provider.
-
-    Honors `stream=true` by relaying the upstream SSE stream chunk-by-chunk.
-    All known network failure modes are mapped to Heimdall exceptions so the
-    central exception handler can render consistent JSON errors.
-    """
-
-    url = f"{settings.upstream_base_url.rstrip('/')}/chat/completions"
-    headers = _filter_request_headers(dict(request.headers), settings)
+    url = f"{provider.base_url.rstrip('/')}/chat/completions"
+    headers = _filter_request_headers(dict(request.headers), provider)
     is_stream = bool(payload.get("stream"))
 
     logger.info(
-        "forwarding upstream=%s model=%s stream=%s",
-        url,
-        payload.get("model"),
-        is_stream,
+        "forwarding provider=%s url=%s model=%s stream=%s",
+        provider.slug, url, payload.get("model"), is_stream,
     )
 
     if not is_stream:
@@ -103,9 +88,7 @@ async def forward_chat_completion(
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError("Upstream LLM provider timed out.") from exc
         except httpx.ConnectError as exc:
-            raise UpstreamConnectionError(
-                "Could not reach upstream LLM provider."
-            ) from exc
+            raise UpstreamConnectionError("Could not reach upstream LLM provider.") from exc
         except httpx.HTTPError as exc:
             raise UpstreamProtocolError(f"Upstream protocol error: {exc}") from exc
 
@@ -115,7 +98,6 @@ async def forward_chat_completion(
             headers=_filter_response_headers(response.headers),
         )
 
-    # Streaming path: open the connection, stream bytes through.
     return StreamingResponse(
         _stream_upstream(client, url, payload, headers),
         media_type="text/event-stream",
@@ -123,9 +105,6 @@ async def forward_chat_completion(
 
 
 def _safe_json(response: httpx.Response) -> Any:
-    """Return the upstream response body decoded as JSON, falling back to a
-    structured error envelope if the body is not valid JSON.
-    """
     try:
         return response.json()
     except ValueError:

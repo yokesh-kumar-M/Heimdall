@@ -11,12 +11,15 @@ const LINKS = [
   { href: "/dashboard/owasp", label: "OWASP" },
   { href: "/dashboard/policies", label: "Policies" },
   { href: "/dashboard/sandbox", label: "Sandbox" },
+  { href: "/dashboard/billing", label: "Billing" },
+  { href: "/dashboard/providers", label: "Providers" },
+  { href: "/dashboard/keys", label: "Keys" },
 ];
 
 export function SiteNav() {
   const pathname = usePathname();
   return (
-    <nav className="flex items-center gap-1 text-sm rounded-full p-1 bg-white/[0.04] border border-white/10 backdrop-blur-md">
+    <nav className="flex items-center gap-1 text-sm rounded-full p-1 bg-white/[0.04] border border-white/10 backdrop-blur-md overflow-x-auto max-w-[60vw]">
       {LINKS.map((l) => {
         const active =
           l.href === "/dashboard"
@@ -27,7 +30,7 @@ export function SiteNav() {
             key={l.href}
             href={l.href}
             className={cn(
-              "relative px-3.5 py-1.5 rounded-full transition-all duration-200",
+              "relative px-3 py-1.5 rounded-full transition-all duration-200 whitespace-nowrap",
               active
                 ? "text-white shadow-[0_0_24px_-8px_rgba(180,140,255,0.6)] bg-gradient-to-br from-indigo-500/30 via-violet-500/25 to-rose-500/20 ring-1 ring-white/15"
                 : "text-muted-foreground hover:text-foreground hover:bg-white/[0.04]"

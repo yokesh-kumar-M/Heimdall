@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { UserMenu } from "@/components/user-menu";
 import { RefreshButton } from "@/components/refresh-button";
 import { SiteNav } from "@/components/site-nav";
 import { StatusIndicator } from "@/components/status-indicator";
@@ -29,9 +30,10 @@ export default function DashboardLayout({
             </div>
           </Link>
           <SiteNav />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <StatusIndicator />
             <RefreshButton />
+            <UserMenu />
           </div>
         </div>
       </header>
@@ -41,8 +43,9 @@ export default function DashboardLayout({
       <footer className="border-t border-white/[0.06] px-6 py-3 text-xs text-muted-foreground">
         <div className="max-w-7xl mx-auto flex justify-between">
           <span>
-            Heimdall v0.1.0 · <span className="text-grad-info font-medium">L1 deterministic</span>{" "}
+            Heimdall v0.2.0 · <span className="text-grad-info font-medium">L1 deterministic</span>{" "}
             · <span className="text-grad-good font-medium">L2 Llama Guard 3</span>
+            {" "}· <span className="text-grad-warning font-medium">AI triage</span>
           </span>
           <span>OWASP LLM Top 10 (2025)</span>
         </div>

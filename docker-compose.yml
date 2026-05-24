@@ -1,0 +1,95 @@
+# Heimdall — full stack.
+#
+#   docker compose up --build
+#
+# Brings up:
+#   * heimdall      — FastAPI proxy + telemetry (port 8000)
+#   * dashboard     — Next.js operations console (port 3000)
+#   * ollama        — Llama Guard 3 inference (port 11434)
+#   * ollama-pull   — one-shot init that pulls the model on first run
+#
+# After it's healthy, open http://localhost:3000
+
+services:
+  heimdall:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: heimdall-backend:latest
+    container_name: heimdall
+    restart: unless-stopped
+    environment:
+      # Override anything from your .env here; left intentionally explicit so
+      # the file is self-documenting.
+      UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-https://api.openai.com/v1}
+      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
+      SEMANTIC_ENABLED: ${SEMANTIC_ENABLED:-true}
+      SEMANTIC_BASE_URL: http://ollama:11434/v1
+      SEMANTIC_MODEL: ${SEMANTIC_MODEL:-llama-guard3}
+      SEMANTIC_FAIL_CLOSED: ${SEMANTIC_FAIL_CLOSED:-false}
+      POLICY_DEFAULT_FP_THRESHOLD: ${POLICY_DEFAULT_FP_THRESHOLD:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    volumes:
+      - heimdall-telemetry:/data
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: heimdall-dashboard:latest
+    container_name: heimdall-dashboard
+    restart: unless-stopped
+    environment:
+      HEIMDALL_API_URL: http://heimdall:8000
+      HEIMDALL_API_TOKEN: ${HEIMDALL_API_TOKEN:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - heimdall
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: heimdall-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Uncomment to enable GPU acceleration (requires nvidia-container-toolkit).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # One-shot: wait for ollama to come up, then pull the model. Heimdall's
+  # `depends_on` waits for *this* container to exit successfully before
+  # starting, guaranteeing L2 is ready on first run.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: heimdall-ollama-pull
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: ollama:11434
+      OLLAMA_MODEL: ${SEMANTIC_MODEL:-llama-guard3}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Ollama at $$OLLAMA_HOST...";
+        until ollama list >/dev/null 2>&1; do sleep 2; done;
+        echo "Pulling $$OLLAMA_MODEL...";
+        ollama pull "$$OLLAMA_MODEL";
+        echo "Model ready.";
+    restart: "no"
+
+volumes:
+  heimdall-telemetry:
+  ollama-data:
